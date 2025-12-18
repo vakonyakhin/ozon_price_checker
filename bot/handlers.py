@@ -1,10 +1,12 @@
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command
+from aiogram.filters.callback_data import CallbackData
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from tabulate import tabulate
 from urllib.parse import urlparse
 
-from storage.sqlite_client import add_item_for_user, get_urls_for_user, remove_url_for_user
+from storage.sqlite_client import add_item_for_user, get_urls_for_user, remove_item_by_rowid
 from parser.price_parser import get_price
 
 # Создаем роутер для обработчиков
@@ -17,6 +19,11 @@ SUPPORTED_HOSTS = {
     "www.wildberries.ru": "wb_items",
 }
 
+class DeleteCallback(CallbackData, prefix="del"):
+    table: str
+    rowid: int
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     """Обработчик команды /start."""
@@ -27,7 +34,7 @@ async def cmd_start(message: Message):
         "Например: `https://ozon.ru/t/Abc1234 1000.50`\n\n"
         "Доступные команды:\n"
         "/list - показать список отслеживаемых товаров\n"
-        "/stop_tracking `[ссылка]` - прекратить отслеживание товара"
+        "/stop_tracking - прекратить отслеживание товара"
     )
 
 @router.message(Command("list"))
@@ -44,7 +51,7 @@ async def cmd_list(message: Message):
     headers = ["Название товара", "Цена"]
     table_data = []
 
-    for url, saved_product_name, target_price in tracked_items:
+    for rowid, url, saved_product_name, target_price, table_name in tracked_items:
         # Получаем актуальную цену и название
         current_price, current_product_name = await get_price(url)
 
@@ -77,15 +84,46 @@ async def cmd_list(message: Message):
 
 @router.message(Command("stop_tracking"))
 async def cmd_stop_tracking(message: Message):
-    """Обработчик команды /stop_tracking."""
+    """Обработчик команды /stop_tracking для интерактивного удаления."""
     user_id = message.from_user.id
-    try:
-        url_to_remove = message.text.split(" ")[1]
-        await remove_url_for_user(user_id, url_to_remove)
-        await message.answer(f"Отслеживание для URL прекращено:\n{url_to_remove}")
-    except IndexError:
-        await message.answer("Пожалуйста, укажите URL после команды. Например:\n" 
-                             "/stop_tracking https://ozon.ru/t/Abc1234")
+    tracked_items = await get_urls_for_user(user_id)
+
+    if not tracked_items:
+        await message.answer("У вас нет отслеживаемых товаров для удаления.")
+        return
+
+    builder = InlineKeyboardBuilder()
+    for rowid, url, product_name, target_price, table_name in tracked_items:
+        display_name = product_name
+        if not display_name:
+            display_name = url.split("?")[0]
+            if len(display_name) > 50:
+                display_name = display_name[:47] + "..."
+        
+        builder.row(
+            InlineKeyboardButton(
+                text=f"❌ {display_name}",
+                callback_data=DeleteCallback(table=table_name, rowid=rowid).pack()
+            )
+        )
+    
+    await message.answer(
+        "Выберите, какой товар вы хотите удалить из отслеживания:",
+        reply_markup=builder.as_markup()
+    )
+
+@router.callback_query(DeleteCallback.filter())
+async def handle_delete_callback(query: CallbackQuery, callback_data: DeleteCallback):
+    """Обработчик нажатия на кнопку удаления товара."""
+    table = callback_data.table
+    rowid = callback_data.rowid
+
+    await remove_item_by_rowid(rowid, table)
+    
+    await query.answer("Товар удален!")
+    
+    # Обновляем сообщение, удаляя клавиатуру
+    await query.message.edit_text("Товар был удален из списка отслеживания.")
 
 
 @router.message(F.text.startswith(("https://", "http://")))
