@@ -11,4 +11,4 @@ REDIS_DB = int(os.getenv("REDIS_DB", 0))
 
 # --- Scheduler ---
 # Интервал проверки цен в секундах (5 минут = 300 секунд)
-PRICE_CHECK_INTERVAL = 300
+PRICE_CHECK_INTERVAL = 600
