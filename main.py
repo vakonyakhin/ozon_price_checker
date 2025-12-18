@@ -2,11 +2,22 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
 
 from config import settings
 from bot.handlers import router as main_router
 from scheduler.tasks import start_scheduler
 from storage.sqlite_client import initialize_db
+
+
+async def set_main_menu(bot: Bot):
+    """Создает кнопку меню с основными командами."""
+    main_menu_commands = [
+        BotCommand(command="/start", description="🏁 Перезапустить бота"),
+        BotCommand(command="/list", description="📜 Показать список товаров"),
+        BotCommand(command="/stop_tracking", description="🗑️ Удалить товар"),
+    ]
+    await bot.set_my_commands(main_menu_commands)
 
 
 async def main():
@@ -21,6 +32,9 @@ async def main():
     # Инициализация бота и диспетчера
     bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
     dp = Dispatcher()
+
+    # Устанавливаем меню
+    await set_main_menu(bot)
 
     # Подключение роутера
     dp.include_router(main_router)
