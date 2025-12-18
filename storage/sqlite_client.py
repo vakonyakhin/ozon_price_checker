@@ -45,13 +45,14 @@ async def add_item_for_user(user_id: int, url: str, product_name: str, table: st
         )
         await db.commit()
 
-async def get_urls_for_user(user_id: int) -> list[tuple[str, str, Optional[float]]]:
+async def get_urls_for_user(user_id: int) -> list[tuple[int, str, str, Optional[float], str]]:
     all_rows = []
     async with aiosqlite.connect(DB_FILE) as db:
         for table in TABLES:
-            cursor = await db.execute(f"SELECT url, product_name, target_price FROM {table} WHERE user_id = ?", (user_id,))
+            cursor = await db.execute(f"SELECT rowid, url, product_name, target_price FROM {table} WHERE user_id = ?", (user_id,))
             rows = await cursor.fetchall()
-            all_rows.extend(rows)
+            # Add table name to each row
+            all_rows.extend([row + (table,) for row in rows])
     return all_rows
 
 async def get_all_tracked_urls() -> list[tuple[int, str, str, Optional[float]]]:
@@ -63,8 +64,9 @@ async def get_all_tracked_urls() -> list[tuple[int, str, str, Optional[float]]]:
             all_rows.extend(rows)
     return all_rows
 
-async def remove_url_for_user(user_id: int, url: str):
+async def remove_item_by_rowid(rowid: int, table_name: str):
+    if table_name not in TABLES:
+        raise ValueError(f"Invalid table name: {table_name}")
     async with aiosqlite.connect(DB_FILE) as db:
-        for table in TABLES:
-            await db.execute(f"DELETE FROM {table} WHERE user_id = ? AND url = ?", (user_id, url))
+        await db.execute(f"DELETE FROM {table_name} WHERE rowid = ?", (rowid,))
         await db.commit()
