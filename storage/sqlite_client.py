@@ -70,3 +70,15 @@ async def remove_item_by_rowid(rowid: int, table_name: str):
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute(f"DELETE FROM {table_name} WHERE rowid = ?", (rowid,))
         await db.commit()
+
+async def get_users_statistics() -> list[tuple[int, int, Optional[str]]]:
+    async with aiosqlite.connect(DB_FILE) as db:
+        subqueries = []
+        for table in TABLES:
+            subqueries.append(f"SELECT user_id, COUNT(*) as cnt, MAX(added_at) as last_added FROM {table} GROUP BY user_id")
+        
+        union_query = " UNION ALL ".join(subqueries)
+        final_query = f"SELECT user_id, SUM(cnt), MAX(last_added) FROM ({union_query}) GROUP BY user_id"
+        
+        cursor = await db.execute(final_query)
+        return await cursor.fetchall()

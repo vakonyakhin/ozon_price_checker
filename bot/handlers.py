@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from tabulate import tabulate
 from urllib.parse import urlparse
 
-from storage.sqlite_client import add_item_for_user, get_urls_for_user, remove_item_by_rowid
+from storage.sqlite_client import add_item_for_user, get_urls_for_user, remove_item_by_rowid, get_users_statistics
 from parser.price_parser import get_price
 
 # Создаем роутер для обработчиков
@@ -29,13 +29,32 @@ async def cmd_start(message: Message):
     """Обработчик команды /start."""
     await message.answer(
         "👋 Привет! Я бот для отслеживания цен на Ozon и Wildberries.\n\n"
-        "Просто отправь мне ссылку на товар, и я буду проверять цену каждые 5 минут.\n"
+        "Просто отправь мне ссылку на товар, и я буду проверять цену каждые 10 минут.\n"
         "Вы также можете указать желаемую цену, и я уведомлю вас, когда цена станет ниже или равна ей.\n"
         "Например: `https://ozon.ru/t/Abc1234 1000.50`\n\n"
         "Доступные команды:\n"
         "/list - показать список отслеживаемых товаров\n"
         "/stop_tracking - прекратить отслеживание товара"
     )
+
+@router.message(Command("summary"))
+async def cmd_summary(message: Message):
+    """Обработчик команды /summary для администратора."""
+    if message.from_user.id != 1608118454:
+        return
+
+    stats = await get_users_statistics()
+    if not stats:
+        await message.answer("Нет данных для отображения.")
+        return
+
+    headers = ["ID", "Кол-во", "Дата"]
+    table_data = []
+    for user_id, count, last_added in stats:
+        date_str = str(last_added).split('.')[0] if last_added else "-"
+        table_data.append([user_id, count, date_str])
+
+    await message.answer(f"<pre>{tabulate(table_data, headers, tablefmt='plain')}</pre>", parse_mode="HTML")
 
 @router.message(Command("list"))
 async def cmd_list(message: Message):
