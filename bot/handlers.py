@@ -5,6 +5,7 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from tabulate import tabulate
 from urllib.parse import urlparse
+import html
 
 from storage.sqlite_client import add_item_for_user, get_urls_for_user, remove_item_by_rowid, get_users_statistics
 from parser.price_parser import get_price
@@ -67,8 +68,7 @@ async def cmd_list(message: Message):
 
     processing_message = await message.answer("🔄 Собираю актуальные цены, это может занять до минуты...")
 
-    headers = ["Название товара", "Цена"]
-    table_data = []
+    items_data = []
 
     for rowid, url, saved_product_name, target_price, table_name in tracked_items:
         # Получаем актуальную цену и название
@@ -89,16 +89,31 @@ async def cmd_list(message: Message):
         if target_price is not None:
             price_info += f" (цель: {int(target_price)} ₽)"
 
-        table_data.append([display_name, price_info])
+        site_name = "Ozon" if "ozon" in table_name else "WB"
+        items_data.append((site_name, display_name, price_info, url))
 
-    if not table_data:
+    if not items_data:
         await processing_message.edit_text("Не удалось получить информацию ни по одному товару.")
         return
 
-    # Форматируем и отправляем таблицу
-    response_table = tabulate(table_data, headers, tablefmt="plain", maxcolwidths=[35, None])
-    
-    await processing_message.edit_text(f"<pre>{response_table}</pre>", parse_mode="HTML")
+    # Формируем список карточек (без тега <pre>, чтобы ссылки работали корректно)
+    response_lines = []
+    for site, name, price, url in items_data:
+        site_icon = "🔵" if site == "Ozon" else "🟣"
+        
+        # Формат: Иконка Сайт | Название (ссылка)
+        #         Цена
+        card = f"{site_icon} <b>{site}</b> | <a href=\"{url}\">{html.escape(name)}</a>\n💰 {price}"
+        
+        response_lines.append(card)
+        response_lines.append("─" * 20)  # Разделитель
+
+    # Убираем последний разделитель
+    if response_lines:
+        response_lines.pop()
+
+    response_text = "\n".join(response_lines)
+    await processing_message.edit_text(response_text, parse_mode="HTML", disable_web_page_preview=True)
 
 
 @router.message(Command("stop_tracking"))

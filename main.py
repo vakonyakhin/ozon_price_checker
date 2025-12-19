@@ -39,23 +39,27 @@ async def main():
     # Подключение роутера
     dp.include_router(main_router)
 
-    # Запуск фоновой задачи планировщика
-    scheduler_task = asyncio.create_task(start_scheduler(bot))
-
     logging.info("Запуск бота...")
+    scheduler_task = None
     try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        # Запуск фоновой задачи планировщика после очистки очереди
+        # Добавляем задержку 10 секунд, чтобы избежать мгновенной проверки при рестарте
+        await asyncio.sleep(10)
+        scheduler_task = asyncio.create_task(start_scheduler(bot))
         await dp.start_polling(bot)
     finally:
         logging.info("Остановка бота...")
         
         # Отменяем задачу планировщика
-        scheduler_task.cancel()
-        
-        # Ожидаем завершения задачи (она может вызвать CancelledError)
-        try:
-            await scheduler_task
-        except asyncio.CancelledError:
-            logging.info("Задача планировщика успешно отменена.")
+        if scheduler_task:
+            scheduler_task.cancel()
+            
+            # Ожидаем завершения задачи (она может вызвать CancelledError)
+            try:
+                await scheduler_task
+            except asyncio.CancelledError:
+                logging.info("Задача планировщика успешно отменена.")
             
         # Корректно закрываем сессию бота
         if bot.session:

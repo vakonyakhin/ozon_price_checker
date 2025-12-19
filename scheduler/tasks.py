@@ -1,7 +1,7 @@
 import asyncio
 from aiogram import Bot
 from collections import defaultdict
-from tabulate import tabulate
+import html
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -80,6 +80,7 @@ async def process_user_items(bot: Bot, user_id: int, items: list):
                 "product_name": product_name or url,
                 "price": int(price),
                 "site": site_name,
+                "url": url,
             }
             if target_price is not None:
                 notification_item["target_price"] = int(target_price)
@@ -92,15 +93,24 @@ async def process_user_items(bot: Bot, user_id: int, items: list):
     # Формируем и отправляем единое сообщение
     try:
         header = "✨ Обновление цен по отслеживаемым товарам!"
-        table_data = []
-        headers = ["Название", "Сайт", "Цена", "Цель"]
+        response_lines = [header, ""]
+
         for notif in notifications:
-            target_price_str = f"{notif['target_price']} ₽" if 'target_price' in notif else "не задана"
-            table_data.append([notif['product_name'], notif['site'], f"{notif['price']} ₽", target_price_str])
-        
-        table = tabulate(table_data, headers, tablefmt="plain", maxcolwidths=[35, 12, None, None])
-        
-        message_text = f"{header}\n\n<pre>{table}</pre>"
+            site = notif['site']
+            site_icon = "🔵" if site == "Ozon" else "🟣"
+            
+            price_str = f"{notif['price']} ₽"
+            if 'target_price' in notif:
+                price_str += f" (цель: {notif['target_price']} ₽)"
+
+            card = f"{site_icon} <b>{site}</b> | <a href=\"{notif['url']}\">{html.escape(notif['product_name'])}</a>\n💰 {price_str}"
+            response_lines.append(card)
+            response_lines.append("─" * 20)
+
+        if response_lines and response_lines[-1] == "─" * 20:
+            response_lines.pop()
+
+        message_text = "\n".join(response_lines)
 
         await bot.send_message(
             chat_id=user_id,
