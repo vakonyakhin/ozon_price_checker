@@ -2,7 +2,7 @@ import os
 
 # --- Telegram Bot ---
 # ВАЖНО: Получите токен у @BotFather в Telegram и вставьте его сюда
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8452812329:AAHOKCmBWuaxAvDq_X_jsZimdJI7mgYIMAw")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_TOKEN")
 
 # --- Redis ---
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
