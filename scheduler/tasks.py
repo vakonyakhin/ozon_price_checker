@@ -66,6 +66,10 @@ async def process_user_items(bot: Bot, user_id: int, items: list):
             print(f"[{user_id}] Не удалось получить цену для {url}")
             continue
         
+        if price == -1:
+            # Товар закончился, пропускаем уведомление
+            continue
+        
         hostname = urlparse(url).hostname
         site_name = "Unknown"
         if hostname and 'ozon.ru' in hostname:

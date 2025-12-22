@@ -86,7 +86,10 @@ async def cmd_list(message: Message):
                 display_name = display_name[:37] + "..."
 
 
-        price_info = f"{int(current_price)} ₽" if current_price is not None else "Ошибка"
+        if current_price == -1:
+            price_info = "Нет в наличии"
+        else:
+            price_info = f"{int(current_price)} ₽" if current_price is not None else "Ошибка"
 
         # Добавляем информацию о целевой цене
         if target_price is not None:
@@ -197,6 +200,10 @@ async def handle_product_url(message: Message):
     processing_message = await message.answer("🔍 Проверяю ссылку и получаю текущую цену...")
 
     price, product_name = await get_price(url)
+
+    if price == -1:
+        await processing_message.edit_text("Данного товара нет в наличии.")
+        return
 
     if price is not None and product_name is not None:
         await add_item_for_user(user_id, url, product_name, table_name, target_price)

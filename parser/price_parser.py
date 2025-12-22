@@ -16,12 +16,14 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 OZON_SELECTORS = {
     "price_xpaths": [
+        "//span[contains(@class, 'pdp_bg4') and contains(@class, 'tsHeadline600Large')]",
         "//span[contains(@class, 'tsHeadline600Large')]",
         "//*[contains(text(), 'С Ozon картой')]/preceding-sibling::*",
         "/html/body/div[1]/div/div[1]/div[3]/div[3]/div[2]/div/div/div[1]/div[3]/div[1]/div[1]/div/div/div[1]/div[1]/button/span/div/div[1]/div/span",
         "//span[contains(text(), '₽')]",
     ],
     "price_css": [
+        "span.pdp_bg4.tsHeadline600Large",
         "span.tsHeadline600Large",
         'div[data-widget="webAddToCart"] span',
         "div[data-widget='webPrice'] span",
@@ -30,12 +32,14 @@ OZON_SELECTORS = {
         ".pl.p-lg",
     ],
     "name_css": "h1.pdp_bg9.tsHeadline550Medium",
+    "sold_out_css": "h2.pdp_c6b",
 }
 
 # Селекторы, предоставленные пользователем, с небольшой адаптацией для надежности
 WB_SELECTORS = {
     "price_css": "h2[class*='mo-typography_color_danger']",
     "name_css": "h3[class*='productTitle']",
+    "sold_out_css": "h2[class*='soldOutProduct']",
 }
 
 
@@ -109,12 +113,20 @@ async def get_ozon_price(url: str) -> Optional[Tuple[float, str]]:
             )
             driver.get(url)
             wait = WebDriverWait(driver, 15)
+            # Ждем появления цены (по символу ₽) или сообщения "товар закончился"
             wait.until(
-                EC.presence_of_element_located((By.XPATH, "//span[contains(text(), '₽')]"))
+                EC.presence_of_element_located((By.XPATH, f"//span[contains(text(), '₽')] | //h2[contains(@class, '{OZON_SELECTORS['sold_out_css'].split('.')[1]}')]"))
             )
 
             page_source = driver.page_source
+            soup = BeautifulSoup(page_source, "html.parser")
+
             product_name = _get_product_name_bs(page_source, OZON_SELECTORS["name_css"])
+
+            # Проверяем, нет ли товара в наличии
+            sold_out_element = soup.select_one(OZON_SELECTORS["sold_out_css"])
+            if sold_out_element and "товар закончился" in sold_out_element.text.lower():
+                return -1.0, product_name, None
 
             # Поиск цены по XPath
             for xpath in OZON_SELECTORS["price_xpaths"]:
@@ -146,7 +158,7 @@ async def get_ozon_price(url: str) -> Optional[Tuple[float, str]]:
             if price_text:
                 return _clean_price(price_text), product_name, None
             else:
-                return None, None, driver.page_source
+                return None, product_name, driver.page_source
 
         finally:
             driver.quit()
@@ -173,20 +185,26 @@ async def get_wb_price(url: str) -> Optional[Tuple[float, str]]:
             driver.get(url)
             wait = WebDriverWait(driver, 15)
             
-            # Ждем появления цены и названия
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, WB_SELECTORS["price_css"])))
+            # Ждем появления названия (оно должно быть всегда)
             wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, WB_SELECTORS["name_css"])))
 
             page_source = driver.page_source
             soup = BeautifulSoup(page_source, "html.parser")
 
-            price_element = soup.select_one(WB_SELECTORS["price_css"])
-            price_text = price_element.text if price_element else None
-
             name_element = soup.select_one(WB_SELECTORS["name_css"])
             product_name = name_element.text.strip() if name_element else None
 
-            return _clean_price(price_text), product_name, None
+            # Проверяем наличие цены
+            price_element = soup.select_one(WB_SELECTORS["price_css"])
+            if price_element:
+                return _clean_price(price_element.text), product_name, None
+
+            # Проверяем, нет ли товара в наличии
+            sold_out_element = soup.select_one(WB_SELECTORS["sold_out_css"])
+            if sold_out_element:
+                return -1.0, product_name, None
+
+            return None, product_name, driver.page_source
         
         except Exception as e:
             print(f"Ошибка при парсинге WB {url}: {e}")
