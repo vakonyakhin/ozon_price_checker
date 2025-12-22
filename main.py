@@ -15,7 +15,9 @@ async def set_main_menu(bot: Bot):
     main_menu_commands = [
         BotCommand(command="/start", description="🏁 Перезапустить бота"),
         BotCommand(command="/list", description="📜 Показать список товаров"),
+        BotCommand(command="/time_check", description="⏱️ Интервал проверки"),
         BotCommand(command="/stop_tracking", description="🗑️ Удалить товар"),
+        BotCommand(command="/history", description="📊 История цен"),
     ]
     await bot.set_my_commands(main_menu_commands)
 

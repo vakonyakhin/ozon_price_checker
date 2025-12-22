@@ -8,7 +8,8 @@ from urllib.parse import urlparse
 import html
 import re
 
-from storage.sqlite_client import add_item_for_user, get_urls_for_user, remove_item_by_rowid, get_users_statistics
+from config import settings
+from storage.sqlite_client import add_item_for_user, get_urls_for_user, remove_item_by_rowid, get_users_statistics, set_user_check_interval, get_user_check_interval, get_url_by_rowid, get_price_history
 from parser.price_parser import get_price
 
 # Создаем роутер для обработчиков
@@ -27,6 +28,9 @@ class DeleteCallback(CallbackData, prefix="del"):
     table: str
     rowid: int
 
+class HistoryCallback(CallbackData, prefix="hist"):
+    table: str
+    rowid: int
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
@@ -38,7 +42,9 @@ async def cmd_start(message: Message):
         "Например: `https://ozon.ru/t/Abc1234 1000.50`\n\n"
         "Доступные команды:\n"
         "/list - показать список отслеживаемых товаров\n"
-        "/stop_tracking - прекратить отслеживание товара"
+        "/time_check - настроить интервал проверки цен\n"
+        "/stop_tracking - прекратить отслеживание товара\n"
+        "/history - история цен товара"
     )
 
 @router.message(Command("summary"))
@@ -59,6 +65,32 @@ async def cmd_summary(message: Message):
         table_data.append([user_id, count, date_str])
 
     await message.answer(f"<pre>{tabulate(table_data, headers, tablefmt='plain')}</pre>", parse_mode="HTML")
+
+@router.message(Command("time_check"))
+async def cmd_time_check(message: Message):
+    """Обработчик команды /time_check для настройки интервала."""
+    args = message.text.split()
+    user_id = message.from_user.id
+
+    if len(args) == 1:
+        interval = await get_user_check_interval(user_id)
+        if interval is None:
+            default_min = settings.PRICE_CHECK_INTERVAL // 60
+            await message.answer(f"⏱️ Ваш интервал проверки: {default_min} мин (по умолчанию).\nЧтобы изменить, введите: /time_check [минуты]")
+        else:
+            await message.answer(f"⏱️ Ваш интервал проверки: {interval} мин.\nЧтобы изменить, введите: /time_check [минуты]")
+        return
+
+    try:
+        minutes = int(args[1])
+        if minutes < 1:
+            await message.answer("⚠️ Интервал должен быть не менее 1 минуты.")
+            return
+        
+        await set_user_check_interval(user_id, minutes)
+        await message.answer(f"✅ Интервал проверки установлен: {minutes} мин.")
+    except ValueError:
+        await message.answer("⚠️ Пожалуйста, укажите целое число минут.\nПример: /time_check 30")
 
 @router.message(Command("list"))
 async def cmd_list(message: Message):
@@ -165,6 +197,66 @@ async def handle_delete_callback(query: CallbackQuery, callback_data: DeleteCall
     # Обновляем сообщение, удаляя клавиатуру
     await query.message.edit_text("Товар был удален из списка отслеживания.")
 
+@router.message(Command("history"))
+async def cmd_history(message: Message):
+    """Обработчик команды /history для просмотра истории цен."""
+    user_id = message.from_user.id
+    tracked_items = await get_urls_for_user(user_id)
+
+    if not tracked_items:
+        await message.answer("У вас нет отслеживаемых товаров для просмотра истории.")
+        return
+
+    builder = InlineKeyboardBuilder()
+    for rowid, url, product_name, target_price, table_name in tracked_items:
+        display_name = product_name
+        if not display_name:
+            display_name = url.split("?")[0]
+            if len(display_name) > 50:
+                display_name = display_name[:47] + "..."
+        
+        builder.row(
+            InlineKeyboardButton(
+                text=f"📊 {display_name}",
+                callback_data=HistoryCallback(table=table_name, rowid=rowid).pack()
+            )
+        )
+    
+    await message.answer(
+        "Выберите товар для просмотра истории цен:",
+        reply_markup=builder.as_markup()
+    )
+
+@router.callback_query(HistoryCallback.filter())
+async def handle_history_callback(query: CallbackQuery, callback_data: HistoryCallback):
+    """Обработчик выбора товара для истории."""
+    table = callback_data.table
+    rowid = callback_data.rowid
+
+    url = await get_url_by_rowid(rowid, table)
+    if not url:
+        await query.answer("Товар не найден.", show_alert=True)
+        return
+
+    history = await get_price_history(url)
+    if not history:
+        await query.answer("История цен пуста.", show_alert=True)
+        return
+
+    table_data = []
+    # Берем последние 20 записей
+    for checked_at, price in history[:20]:
+        # Преобразуем дату в строку и убираем микросекунды для аккуратности
+        time_str = str(checked_at).split('.')[0]
+        table_data.append([time_str, f"{int(price)} ₽"])
+
+    headers = ["Время", "Цена"]
+    text_table = tabulate(table_data, headers, tablefmt="plain")
+    
+    await query.message.edit_text(
+        f"📊 История цен:\n<pre>{text_table}</pre>",
+        parse_mode="HTML"
+    )
 
 @router.message(lambda m: re.search(r"https?://", m.text or m.caption or ""))
 async def handle_product_url(message: Message):
