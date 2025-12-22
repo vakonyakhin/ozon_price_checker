@@ -6,6 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from tabulate import tabulate
 from urllib.parse import urlparse
 import html
+import re
 
 from storage.sqlite_client import add_item_for_user, get_urls_for_user, remove_item_by_rowid, get_users_statistics
 from parser.price_parser import get_price
@@ -16,8 +17,10 @@ router = Router()
 SUPPORTED_HOSTS = {
     "ozon.ru": "ozon_items",
     "www.ozon.ru": "ozon_items",
+    "m.ozon.ru": "ozon_items",
     "wildberries.ru": "wb_items",
     "www.wildberries.ru": "wb_items",
+    "m.wildberries.ru": "wb_items",
 }
 
 class DeleteCallback(CallbackData, prefix="del"):
@@ -160,27 +163,36 @@ async def handle_delete_callback(query: CallbackQuery, callback_data: DeleteCall
     await query.message.edit_text("Товар был удален из списка отслеживания.")
 
 
-@router.message(F.text.startswith(("https://", "http://")))
+@router.message(lambda m: re.search(r"https?://", m.text or m.caption or ""))
 async def handle_product_url(message: Message):
     """Обработчик сообщений, содержащих URL Ozon или Wildberries."""
     user_id = message.from_user.id
-    parts = message.text.split()
-    url = parts[0]
+    text = message.text or message.caption
+
+    # Ищем URL в тексте
+    url_match = re.search(r"(https?://[^\s]+)", text)
+    if not url_match:
+        await handle_other_messages(message)
+        return
+
+    url = url_match.group(1).rstrip(".,;!?")
     
     hostname = urlparse(url).hostname
-    if hostname not in SUPPORTED_HOSTS:
+    if not hostname or hostname not in SUPPORTED_HOSTS:
         await handle_other_messages(message)
         return
 
     table_name = SUPPORTED_HOSTS[hostname]
     
     target_price = None
-    if len(parts) > 1:
+    # Проверяем наличие целевой цены после ссылки
+    post_url_text = text[url_match.end():].strip()
+    if post_url_text:
+        parts = post_url_text.split()
         try:
-            target_price = float(parts[1])
+            target_price = float(parts[0].replace(',', '.'))
         except ValueError:
-            await message.answer("Неверный формат целевой цены. Пожалуйста, укажите число.")
-            return
+            pass
 
     processing_message = await message.answer("🔍 Проверяю ссылку и получаю текущую цену...")
 
