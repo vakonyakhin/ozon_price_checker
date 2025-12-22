@@ -75,7 +75,7 @@ async def cmd_list(message: Message):
 
     for rowid, url, saved_product_name, target_price, table_name in tracked_items:
         # Получаем актуальную цену и название
-        current_price, current_product_name = await get_price(url)
+        current_price, current_product_name, _ = await get_price(url)
 
         # Используем сохраненное имя, если актуальное не получено
         display_name = current_product_name or saved_product_name
@@ -199,7 +199,7 @@ async def handle_product_url(message: Message):
 
     processing_message = await message.answer("🔍 Проверяю ссылку и получаю текущую цену...")
 
-    price, product_name = await get_price(url)
+    price, product_name, promo_text = await get_price(url)
 
     if price == -1:
         await processing_message.edit_text("Данного товара нет в наличии.")
@@ -209,8 +209,12 @@ async def handle_product_url(message: Message):
         await add_item_for_user(user_id, url, product_name, table_name, target_price)
         response_text = (
             f"✅ Цена успешно получена!\n"
-            f"Текущая цена для '{product_name}': {int(price)} ₽\n\n"
+            f"Текущая цена для '{product_name}': {int(price)} ₽\n"
         )
+        if promo_text:
+            response_text += f"🔥 {promo_text}\n"
+        
+        response_text += "\n"
         if target_price is not None:
             response_text += f"Я начну отслеживать цену этого товара и уведомлю вас, когда она достигнет {int(target_price)} ₽."
         else:

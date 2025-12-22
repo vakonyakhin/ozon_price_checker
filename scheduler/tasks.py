@@ -60,7 +60,7 @@ async def process_user_items(bot: Bot, user_id: int, items: list):
         product_name = item['product_name']
         target_price = item['target_price']
 
-        price, _ = await get_price(url)
+        price, _, _ = await get_price(url)
 
         if price is None:
             print(f"[{user_id}] Не удалось получить цену для {url}")

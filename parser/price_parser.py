@@ -39,6 +39,8 @@ OZON_SELECTORS = {
 WB_SELECTORS = {
     "price_css": "h2[class*='mo-typography_color_danger']",
     "name_css": "h3[class*='productTitle']",
+    "promo_price_css": "ins[class*='priceBlockFinalPrice']",
+    "promo_timer_css": "span[class*='promoTimerTime']",
     "sold_out_css": "h2[class*='soldOutProduct']",
 }
 
@@ -76,13 +78,13 @@ def _get_product_name_bs(page_source: str, selector: str) -> Optional[str]:
     return name_element.text.strip() if name_element else None
 
 
-async def get_price(url: str) -> Optional[Tuple[float, str]]:
+async def get_price(url: str) -> Optional[Tuple[float, str, Optional[str]]]:
     """
-    Асинхронно получает цену и название товара, определяя сайт по URL.
+    Асинхронно получает цену, название товара и информацию об акции, определяя сайт по URL.
     """
     hostname = urlparse(url).hostname
     if not hostname:
-        return None, None
+        return None, None, None
 
     if "ozon.ru" in hostname:
         return await get_ozon_price(url)
@@ -90,10 +92,10 @@ async def get_price(url: str) -> Optional[Tuple[float, str]]:
         return await get_wb_price(url)
     else:
         print(f"Сайт не поддерживается: {hostname}")
-        return None, None
+        return None, None, None
 
 
-async def get_ozon_price(url: str) -> Optional[Tuple[float, str]]:
+async def get_ozon_price(url: str) -> Optional[Tuple[float, str, Optional[str]]]:
     """Асинхронно получает цену и название товара со страницы Ozon."""
     loop = asyncio.get_running_loop()
 
@@ -171,10 +173,10 @@ async def get_ozon_price(url: str) -> Optional[Tuple[float, str]]:
             f.write(page_source_on_failure)
         print(f"❌ Цена Ozon не найдена. HTML сохранен в '{debug_path}'.")
 
-    return price, product_name
+    return price, product_name, None
 
 
-async def get_wb_price(url: str) -> Optional[Tuple[float, str]]:
+async def get_wb_price(url: str) -> Optional[Tuple[float, str, Optional[str]]]:
     """Асинхронно получает цену и название товара со страницы Wildberries."""
     loop = asyncio.get_running_loop()
 
@@ -194,25 +196,36 @@ async def get_wb_price(url: str) -> Optional[Tuple[float, str]]:
             name_element = soup.select_one(WB_SELECTORS["name_css"])
             product_name = name_element.text.strip() if name_element else None
 
+            # 1. Проверяем акционную цену (ins)
+            promo_price_element = soup.select_one(WB_SELECTORS["promo_price_css"])
+            if promo_price_element:
+                price = _clean_price(promo_price_element.text)
+                promo_text = None
+                # Если есть акционная цена, ищем таймер
+                timer_element = soup.select_one(WB_SELECTORS["promo_timer_css"])
+                if timer_element:
+                    promo_text = f"Товар по акции. Срок действия цены ограничен. Осталось {timer_element.text.strip()}"
+                return price, product_name, promo_text, None
+
             # Проверяем наличие цены
             price_element = soup.select_one(WB_SELECTORS["price_css"])
             if price_element:
-                return _clean_price(price_element.text), product_name, None
+                return _clean_price(price_element.text), product_name, None, None
 
             # Проверяем, нет ли товара в наличии
             sold_out_element = soup.select_one(WB_SELECTORS["sold_out_css"])
             if sold_out_element:
-                return -1.0, product_name, None
+                return -1.0, product_name, None, None
 
-            return None, product_name, driver.page_source
+            return None, product_name, None, driver.page_source
         
         except Exception as e:
             print(f"Ошибка при парсинге WB {url}: {e}")
-            return None, None, driver.page_source
+            return None, None, None, driver.page_source
         finally:
             driver.quit()
 
-    price, product_name, page_source_on_failure = await loop.run_in_executor(None, scrape)
+    price, product_name, promo_text, page_source_on_failure = await loop.run_in_executor(None, scrape)
 
     if page_source_on_failure:
         debug_path = "wb_page_source.html"
@@ -220,4 +233,4 @@ async def get_wb_price(url: str) -> Optional[Tuple[float, str]]:
             f.write(page_source_on_failure)
         print(f"❌ Цена WB не найдена. HTML сохранен в '{debug_path}'.")
 
-    return price, product_name
+    return price, product_name, promo_text
