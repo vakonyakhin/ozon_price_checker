@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import CommandStart, Command
 from aiogram.filters.callback_data import CallbackData
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -7,6 +7,11 @@ from tabulate import tabulate
 from urllib.parse import urlparse
 import html
 import re
+import matplotlib
+matplotlib.use('Agg')  # Устанавливаем backend без GUI
+import matplotlib.pyplot as plt
+import io
+import datetime
 
 from config import settings
 from storage.sqlite_client import add_item_for_user, get_urls_for_user, remove_item_by_rowid, get_users_statistics, set_user_check_interval, get_user_check_interval, get_url_by_rowid, get_price_history
@@ -243,6 +248,42 @@ async def handle_history_callback(query: CallbackQuery, callback_data: HistoryCa
         await query.answer("История цен пуста.", show_alert=True)
         return
 
+    # --- Построение графика ---
+    dates = []
+    prices = []
+    
+    # history отсортирован DESC (сначала новые), для графика нужно ASC (хронологический порядок)
+    for record in reversed(history):
+        checked_at, price = record
+        if isinstance(checked_at, str):
+            # Парсим дату, если она пришла строкой из SQLite
+            try:
+                dt = datetime.datetime.fromisoformat(checked_at)
+            except ValueError:
+                # Fallback для форматов, если fromisoformat не сработал
+                dt = datetime.datetime.strptime(checked_at, "%Y-%m-%d %H:%M:%S.%f")
+        else:
+            dt = checked_at
+        dates.append(dt)
+        prices.append(price)
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(dates, prices, marker='o', linestyle='-', color='b')
+    plt.title("История изменения цены")
+    plt.xlabel("Дата")
+    plt.ylabel("Цена (₽)")
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    plt.close()
+    
+    photo_file = BufferedInputFile(buf.read(), filename="history.png")
+    buf.close()
+
     table_data = []
     # Берем последние 20 записей
     for checked_at, price in history[:20]:
@@ -253,8 +294,11 @@ async def handle_history_callback(query: CallbackQuery, callback_data: HistoryCa
     headers = ["Время", "Цена"]
     text_table = tabulate(table_data, headers, tablefmt="plain")
     
-    await query.message.edit_text(
-        f"📊 История цен:\n<pre>{text_table}</pre>",
+    # Удаляем сообщение с меню и отправляем фото с таблицей в описании
+    await query.message.delete()
+    await query.message.answer_photo(
+        photo=photo_file,
+        caption=f"📊 История цен:\n<pre>{text_table}</pre>",
         parse_mode="HTML"
     )
 
